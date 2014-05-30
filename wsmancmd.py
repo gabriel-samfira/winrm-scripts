@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 
 # Copyright 2013 Cloudbase Solutions Srl
 # All Rights Reserved.
@@ -22,20 +22,27 @@ from winrm import protocol
 
 
 def print_usage():
-    print ("%s -U <url> -u <username> -p <password> <cmd> [cmd_args]" %
+    print ("%s -U <url> -c <cert> -k <key> -u <username> -p <password> <cmd> [cmd_args]" %
            sys.argv[0])
 
+
+use_x509 = False
+use_basic = False
 
 def parse_args():
 
     username = None
     password = None
+    cert = None
+    key = None
     url = None
     cmd = None
+    global use_x509
+    global use_basic
 
     try:
         show_usage = False
-        opts, args = getopt.getopt(sys.argv[1:], "hU:u:p:c:")
+        opts, args = getopt.getopt(sys.argv[1:], "hU:u:p:c:k:")
         for opt, arg in opts:
             if opt == "-h":
                 show_usage = True
@@ -45,25 +52,47 @@ def parse_args():
                 username = arg
             elif opt == "-p":
                 password = arg
+            elif opt == "-c":
+                cert = arg
+            elif opt == "-k":
+                key = arg
+
 
         cmd = args
 
-        if show_usage or not (url and username and password and cmd):
+        if cert and key:
+            use_x509 = True
+         
+        if username and password:
+            use_basic = True
+
+        if show_usage or not (url and use_x509 or use_basic and cmd):
             print_usage()
 
     except getopt.GetoptError:
         print_usage()
 
-    return (url, username, password, cmd)
+    return (url, username, password, key, cert, cmd)
 
 
-def run_wsman_cmd(url, username, password, cmd):
+def run_wsman_cmd(url, cmd, username=None, password=None, key=None, cert=None):
     protocol.Protocol.DEFAULT_TIMEOUT = "PT3600S"
 
-    p = protocol.Protocol(endpoint=url,
-                          transport='plaintext',
-                          username=username,
-                          password=password)
+    args = {
+       'endpoint': url,
+       'transport': 'plaintext',
+    }
+
+    if use_x509:
+        args['transport'] = 'ssl'
+        args['cert_pem'] = cert
+        args['cert_key_pem'] = key
+    elif use_basic:
+        args['username'] = username
+        args['passwor'] = password
+
+
+    p = protocol.Protocol(**args)
 
     shell_id = p.open_shell()
 
@@ -79,12 +108,20 @@ def run_wsman_cmd(url, username, password, cmd):
 def main():
     exit_code = 0
 
-    url, username, password, cmd = parse_args()
-    if not (url and username and password and cmd):
+    url, username, password, key, cert, cmd = parse_args()
+
+    if cert and key:
+        use_x509 = True
+
+    if username and password:
+        use_basic = True
+
+    if not (url and use_x509 or use_basic and cmd):
         exit_code = 1
     else:
-        std_out, std_err, exit_code = run_wsman_cmd(url, username, password,
-                                                    cmd)
+        std_out, std_err, exit_code = run_wsman_cmd(url, cmd,
+                                                    username=username, password=password,
+                                                    key=key, cert=cert)
         sys.stderr.write(std_out)
         sys.stderr.write(std_err)
 
